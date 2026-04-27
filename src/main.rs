@@ -1,6 +1,8 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use anyhow::{bail, Result};
+use clap::{Parser, Subcommand, ValueEnum};
+use md5::Md5;
 use serde::Serialize;
+use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -29,11 +31,42 @@ enum Commands {
 
         #[arg(long)]
         json: bool,
+
+        #[arg(short, long, value_enum, default_value_t = HashAlgorithm::Sha256)]
+        algorithm: HashAlgorithm,
     },
 
     Hash {
         path: String,
+
+        #[arg(short, long, value_enum, default_value_t = HashAlgorithm::Sha256)]
+        algorithm: HashAlgorithm,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum HashAlgorithm {
+    Sha256,
+    Sha1,
+    Md5,
+}
+
+impl HashAlgorithm {
+    fn as_str(&self) -> &'static str {
+        match self {
+            HashAlgorithm::Sha256 => "sha256",
+            HashAlgorithm::Sha1 => "sha1",
+            HashAlgorithm::Md5 => "md5",
+        }
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            HashAlgorithm::Sha256 => "SHA256",
+            HashAlgorithm::Sha1 => "SHA1",
+            HashAlgorithm::Md5 => "MD5",
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -45,31 +78,71 @@ struct MatchResult {
 
 #[derive(Serialize)]
 struct ScanStats {
+    algorithm: String,
     files_scanned: usize,
     matches_found: usize,
     errors: usize,
     matches: Vec<MatchResult>,
 }
 
-fn hash_file(path: &Path) -> Result<String> {
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = reader.read(&mut buffer)?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        hasher.update(&buffer[..bytes_read]);
+fn hash_file(path: &Path, algorithm: HashAlgorithm) -> Result<String> {
+    if !path.is_file() {
+        bail!("Path is not a file: {}", path.display());
     }
 
-    let hash = hasher.finalize();
-    Ok(format!("{:x}", hash))
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut buffer = [0u8; 8192];
+
+    match algorithm {
+        HashAlgorithm::Sha256 => {
+            let mut hasher = Sha256::new();
+
+            loop {
+                let bytes_read = reader.read(&mut buffer)?;
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                hasher.update(&buffer[..bytes_read]);
+            }
+
+            Ok(format!("{:x}", hasher.finalize()))
+        }
+
+        HashAlgorithm::Sha1 => {
+            let mut hasher = Sha1::new();
+
+            loop {
+                let bytes_read = reader.read(&mut buffer)?;
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                hasher.update(&buffer[..bytes_read]);
+            }
+
+            Ok(format!("{:x}", hasher.finalize()))
+        }
+
+        HashAlgorithm::Md5 => {
+            let mut hasher = Md5::new();
+
+            loop {
+                let bytes_read = reader.read(&mut buffer)?;
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                hasher.update(&buffer[..bytes_read]);
+            }
+
+            Ok(format!("{:x}", hasher.finalize()))
+        }
+    }
 }
 
 fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
@@ -106,8 +179,9 @@ fn scan_file(
     stats: &mut ScanStats,
     quiet: bool,
     json: bool,
+    algorithm: HashAlgorithm,
 ) -> Result<()> {
-    let hash = hash_file(path)?;
+    let hash = hash_file(path, algorithm)?;
     stats.files_scanned += 1;
 
     if let Some(signature_name) = signatures.get(&hash) {
@@ -135,9 +209,10 @@ fn scan_path(
     stats: &mut ScanStats,
     quiet: bool,
     json: bool,
+    algorithm: HashAlgorithm,
 ) -> Result<()> {
     if path.is_file() {
-        if let Err(error) = scan_file(path, signatures, stats, quiet, json) {
+        if let Err(error) = scan_file(path, signatures, stats, quiet, json, algorithm) {
             stats.errors += 1;
 
             if !json {
@@ -145,15 +220,18 @@ fn scan_path(
             }
         }
     } else if path.is_dir() {
-        for entry in WalkDir::new(path)
-            .into_iter()
-            .filter_entry(|e| !should_skip(e))
-        {
+        for entry in WalkDir::new(path).into_iter().filter_entry(|e| !should_skip(e)) {
             match entry {
                 Ok(entry) => {
                     if entry.path().is_file() {
-                        if let Err(error) = scan_file(entry.path(), signatures, stats, quiet, json)
-                        {
+                        if let Err(error) = scan_file(
+                            entry.path(),
+                            signatures,
+                            stats,
+                            quiet,
+                            json,
+                            algorithm,
+                        ) {
                             stats.errors += 1;
 
                             if !json {
@@ -185,6 +263,7 @@ fn scan_path(
 fn print_text_summary(stats: &ScanStats) {
     println!();
     println!("Scan complete.");
+    println!("Algorithm: {}", stats.algorithm);
     println!("Files scanned: {}", stats.files_scanned);
     println!("Matches found: {}", stats.matches_found);
     println!("Errors: {}", stats.errors);
@@ -199,10 +278,12 @@ fn main() -> Result<()> {
             signatures,
             quiet,
             json,
+            algorithm,
         } => {
             let signatures = load_signatures(Path::new(&signatures))?;
 
             let mut stats = ScanStats {
+                algorithm: algorithm.as_str().to_string(),
                 files_scanned: 0,
                 matches_found: 0,
                 errors: 0,
@@ -210,7 +291,7 @@ fn main() -> Result<()> {
             };
 
             let path = Path::new(&path);
-            scan_path(path, &signatures, &mut stats, quiet, json)?;
+            scan_path(path, &signatures, &mut stats, quiet, json, algorithm)?;
 
             if json {
                 let output = serde_json::to_string_pretty(&stats)?;
@@ -220,12 +301,13 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Hash { path } => {
+        Commands::Hash { path, algorithm } => {
             let path = Path::new(&path);
-            let hash = hash_file(path)?;
+            let hash = hash_file(path, algorithm)?;
 
             println!("File: {}", path.display());
-            println!("SHA256: {}", hash);
+            println!("Algorithm: {}", algorithm.display_name());
+            println!("{}: {}", algorithm.display_name(), hash);
         }
     }
 
