@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::Path;
+use walkdir::WalkDir;
 
 #[derive(Parser)]
 #[command(name = "file-hash-scanner")]
@@ -64,6 +65,38 @@ fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
     Ok(signatures)
 }
 
+fn scan_file(path: &Path, signatures: &HashMap<String, String>) -> Result<()> {
+    let hash = hash_file(path)?;
+
+    if let Some(signature_name) = signatures.get(&hash) {
+        println!("[MATCH] {} -> {}", path.display(), signature_name);
+    } else {
+        println!("[OK] {}", path.display());
+    }
+
+    Ok(())
+}
+
+fn scan_path(path: &Path, signatures: &HashMap<String, String>) -> Result<()> {
+    if path.is_file() {
+        scan_file(path, signatures)?;
+    } else if path.is_dir() {
+        for entry in WalkDir::new(path) {
+            let entry = entry?;
+
+            if entry.path().is_file() {
+                if let Err(error) = scan_file(entry.path(), signatures) {
+                    eprintln!("[ERROR] {} -> {}", entry.path().display(), error);
+                }
+            }
+        }
+    } else {
+        eprintln!("Path does not exist: {}", path.display());
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let signatures = load_signatures(Path::new("signatures.txt"))?;
@@ -71,17 +104,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Scan { path } => {
             let path = Path::new(&path);
-            let hash = hash_file(path)?;
-
-            println!("File: {}", path.display());
-            println!("SHA256: {}", hash);
-
-            if let Some(signature_name) = signatures.get(&hash) {
-                println!("Status: MATCH FOUND");
-                println!("Signature: {}", signature_name);
-            } else {
-                println!("Status: No match found");
-            }
+            scan_path(path, &signatures)?;
         }
     }
 
