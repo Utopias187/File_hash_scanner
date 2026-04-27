@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
-use std::fs::File;
+use std::collections::HashMap;
+use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::Path;
 
@@ -41,8 +42,31 @@ fn hash_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hash))
 }
 
+fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
+    let content = fs::read_to_string(path)?;
+    let mut signatures = HashMap::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let mut parts = line.split_whitespace();
+
+        if let Some(hash) = parts.next() {
+            let name = parts.collect::<Vec<_>>().join(" ");
+            signatures.insert(hash.to_lowercase(), name);
+        }
+    }
+
+    Ok(signatures)
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let signatures = load_signatures(Path::new("signatures.txt"))?;
 
     match cli.command {
         Commands::Scan { path } => {
@@ -51,6 +75,13 @@ fn main() -> Result<()> {
 
             println!("File: {}", path.display());
             println!("SHA256: {}", hash);
+
+            if let Some(signature_name) = signatures.get(&hash) {
+                println!("Status: MATCH FOUND");
+                println!("Signature: {}", signature_name);
+            } else {
+                println!("Status: No match found");
+            }
         }
     }
 

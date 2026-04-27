@@ -1,0 +1,3 @@
+# hash name
+# SHA256 signature database
+99f86e1be6de5ae82b3f23977b65ebe43cb8359b37b6cf0ab8e6c2eaa0c99193 test-file-match
