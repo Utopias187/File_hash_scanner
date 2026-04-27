@@ -19,6 +19,9 @@ struct Cli {
 enum Commands {
     Scan {
         path: String,
+
+        #[arg(short, long, default_value = "signatures.txt")]
+        signatures: String,
     },
 }
 
@@ -71,7 +74,11 @@ fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
     Ok(signatures)
 }
 
-fn scan_file(path: &Path, signatures: &HashMap<String, String>, stats: &mut ScanStats) -> Result<()> {
+fn scan_file(
+    path: &Path,
+    signatures: &HashMap<String, String>,
+    stats: &mut ScanStats,
+) -> Result<()> {
     let hash = hash_file(path)?;
     stats.files_scanned += 1;
 
@@ -85,7 +92,11 @@ fn scan_file(path: &Path, signatures: &HashMap<String, String>, stats: &mut Scan
     Ok(())
 }
 
-fn scan_path(path: &Path, signatures: &HashMap<String, String>, stats: &mut ScanStats) -> Result<()> {
+fn scan_path(
+    path: &Path,
+    signatures: &HashMap<String, String>,
+    stats: &mut ScanStats,
+) -> Result<()> {
     if path.is_file() {
         if let Err(error) = scan_file(path, signatures, stats) {
             stats.errors += 1;
@@ -118,7 +129,6 @@ fn scan_path(path: &Path, signatures: &HashMap<String, String>, stats: &mut Scan
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let signatures = load_signatures(Path::new("signatures.txt"))?;
 
     let mut stats = ScanStats {
         files_scanned: 0,
@@ -127,8 +137,10 @@ fn main() -> Result<()> {
     };
 
     match cli.command {
-        Commands::Scan { path } => {
+        Commands::Scan { path, signatures } => {
+            let signatures = load_signatures(Path::new(&signatures))?;
             let path = Path::new(&path);
+
             scan_path(path, &signatures, &mut stats)?;
         }
     }
