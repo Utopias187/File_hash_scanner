@@ -22,6 +22,9 @@ enum Commands {
 
         #[arg(short, long, default_value = "signatures.txt")]
         signatures: String,
+
+        #[arg(short, long)]
+        quiet: bool,
     },
 }
 
@@ -84,6 +87,7 @@ fn scan_file(
     path: &Path,
     signatures: &HashMap<String, String>,
     stats: &mut ScanStats,
+    quiet: bool,
 ) -> Result<()> {
     let hash = hash_file(path)?;
     stats.files_scanned += 1;
@@ -91,7 +95,7 @@ fn scan_file(
     if let Some(signature_name) = signatures.get(&hash) {
         stats.matches_found += 1;
         println!("[MATCH] {} -> {}", path.display(), signature_name);
-    } else {
+    } else if !quiet {
         println!("[OK] {}", path.display());
     }
 
@@ -102,9 +106,10 @@ fn scan_path(
     path: &Path,
     signatures: &HashMap<String, String>,
     stats: &mut ScanStats,
+    quiet: bool,
 ) -> Result<()> {
     if path.is_file() {
-        if let Err(error) = scan_file(path, signatures, stats) {
+        if let Err(error) = scan_file(path, signatures, stats, quiet) {
             stats.errors += 1;
             eprintln!("[ERROR] {} -> {}", path.display(), error);
         }
@@ -116,7 +121,7 @@ fn scan_path(
             match entry {
                 Ok(entry) => {
                     if entry.path().is_file() {
-                        if let Err(error) = scan_file(entry.path(), signatures, stats) {
+                        if let Err(error) = scan_file(entry.path(), signatures, stats, quiet) {
                             stats.errors += 1;
                             eprintln!("[ERROR] {} -> {}", entry.path().display(), error);
                         }
@@ -146,11 +151,15 @@ fn main() -> Result<()> {
     };
 
     match cli.command {
-        Commands::Scan { path, signatures } => {
+        Commands::Scan {
+            path,
+            signatures,
+            quiet,
+        } => {
             let signatures = load_signatures(Path::new(&signatures))?;
             let path = Path::new(&path);
 
-            scan_path(path, &signatures, &mut stats)?;
+            scan_path(path, &signatures, &mut stats, quiet)?;
         }
     }
 
