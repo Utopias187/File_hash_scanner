@@ -26,3 +26,14 @@ cargo run -- scan . --quiet
 cargo run -- scan . --json```markdown
 - Quiet mode for cleaner scans
 - JSON output for machine-readable results
+
+Generate a SHA-256 hash without scanning:
+
+```bash
+cargo run -- hash test.txt
+
+
+Also add this to the features list:
+
+```markdown
+- Generate SHA-256 hashes without signature matching
