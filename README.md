@@ -17,3 +17,12 @@ Scan a file:
 
 ```bash
 cargo run -- scan test.txt
+
+Use quiet mode:
+
+```bash
+cargo run -- scan . --quiet
+
+cargo run -- scan . --json```markdown
+- Quiet mode for cleaner scans
+- JSON output for machine-readable results
