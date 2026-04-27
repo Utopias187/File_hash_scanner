@@ -30,6 +30,10 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    Hash {
+        path: String,
+    },
 }
 
 #[derive(Serialize)]
@@ -189,13 +193,6 @@ fn print_text_summary(stats: &ScanStats) {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let mut stats = ScanStats {
-        files_scanned: 0,
-        matches_found: 0,
-        errors: 0,
-        matches: Vec::new(),
-    };
-
     match cli.command {
         Commands::Scan {
             path,
@@ -204,8 +201,15 @@ fn main() -> Result<()> {
             json,
         } => {
             let signatures = load_signatures(Path::new(&signatures))?;
-            let path = Path::new(&path);
 
+            let mut stats = ScanStats {
+                files_scanned: 0,
+                matches_found: 0,
+                errors: 0,
+                matches: Vec::new(),
+            };
+
+            let path = Path::new(&path);
             scan_path(path, &signatures, &mut stats, quiet, json)?;
 
             if json {
@@ -214,6 +218,14 @@ fn main() -> Result<()> {
             } else {
                 print_text_summary(&stats);
             }
+        }
+
+        Commands::Hash { path } => {
+            let path = Path::new(&path);
+            let hash = hash_file(path)?;
+
+            println!("File: {}", path.display());
+            println!("SHA256: {}", hash);
         }
     }
 
