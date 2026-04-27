@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -25,13 +26,25 @@ enum Commands {
 
         #[arg(short, long)]
         quiet: bool,
+
+        #[arg(long)]
+        json: bool,
     },
 }
 
+#[derive(Serialize)]
+struct MatchResult {
+    path: String,
+    hash: String,
+    signature: String,
+}
+
+#[derive(Serialize)]
 struct ScanStats {
     files_scanned: usize,
     matches_found: usize,
     errors: usize,
+    matches: Vec<MatchResult>,
 }
 
 fn hash_file(path: &Path) -> Result<String> {
@@ -88,14 +101,24 @@ fn scan_file(
     signatures: &HashMap<String, String>,
     stats: &mut ScanStats,
     quiet: bool,
+    json: bool,
 ) -> Result<()> {
     let hash = hash_file(path)?;
     stats.files_scanned += 1;
 
     if let Some(signature_name) = signatures.get(&hash) {
         stats.matches_found += 1;
-        println!("[MATCH] {} -> {}", path.display(), signature_name);
-    } else if !quiet {
+
+        stats.matches.push(MatchResult {
+            path: path.display().to_string(),
+            hash,
+            signature: signature_name.to_string(),
+        });
+
+        if !json {
+            println!("[MATCH] {} -> {}", path.display(), signature_name);
+        }
+    } else if !quiet && !json {
         println!("[OK] {}", path.display());
     }
 
@@ -107,11 +130,15 @@ fn scan_path(
     signatures: &HashMap<String, String>,
     stats: &mut ScanStats,
     quiet: bool,
+    json: bool,
 ) -> Result<()> {
     if path.is_file() {
-        if let Err(error) = scan_file(path, signatures, stats, quiet) {
+        if let Err(error) = scan_file(path, signatures, stats, quiet, json) {
             stats.errors += 1;
-            eprintln!("[ERROR] {} -> {}", path.display(), error);
+
+            if !json {
+                eprintln!("[ERROR] {} -> {}", path.display(), error);
+            }
         }
     } else if path.is_dir() {
         for entry in WalkDir::new(path)
@@ -121,24 +148,42 @@ fn scan_path(
             match entry {
                 Ok(entry) => {
                     if entry.path().is_file() {
-                        if let Err(error) = scan_file(entry.path(), signatures, stats, quiet) {
+                        if let Err(error) = scan_file(entry.path(), signatures, stats, quiet, json)
+                        {
                             stats.errors += 1;
-                            eprintln!("[ERROR] {} -> {}", entry.path().display(), error);
+
+                            if !json {
+                                eprintln!("[ERROR] {} -> {}", entry.path().display(), error);
+                            }
                         }
                     }
                 }
                 Err(error) => {
                     stats.errors += 1;
-                    eprintln!("[ERROR] {}", error);
+
+                    if !json {
+                        eprintln!("[ERROR] {}", error);
+                    }
                 }
             }
         }
     } else {
         stats.errors += 1;
-        eprintln!("Path does not exist: {}", path.display());
+
+        if !json {
+            eprintln!("Path does not exist: {}", path.display());
+        }
     }
 
     Ok(())
+}
+
+fn print_text_summary(stats: &ScanStats) {
+    println!();
+    println!("Scan complete.");
+    println!("Files scanned: {}", stats.files_scanned);
+    println!("Matches found: {}", stats.matches_found);
+    println!("Errors: {}", stats.errors);
 }
 
 fn main() -> Result<()> {
@@ -148,6 +193,7 @@ fn main() -> Result<()> {
         files_scanned: 0,
         matches_found: 0,
         errors: 0,
+        matches: Vec::new(),
     };
 
     match cli.command {
@@ -155,19 +201,21 @@ fn main() -> Result<()> {
             path,
             signatures,
             quiet,
+            json,
         } => {
             let signatures = load_signatures(Path::new(&signatures))?;
             let path = Path::new(&path);
 
-            scan_path(path, &signatures, &mut stats, quiet)?;
+            scan_path(path, &signatures, &mut stats, quiet, json)?;
+
+            if json {
+                let output = serde_json::to_string_pretty(&stats)?;
+                println!("{}", output);
+            } else {
+                print_text_summary(&stats);
+            }
         }
     }
-
-    println!();
-    println!("Scan complete.");
-    println!("Files scanned: {}", stats.files_scanned);
-    println!("Matches found: {}", stats.matches_found);
-    println!("Errors: {}", stats.errors);
 
     Ok(())
 }
