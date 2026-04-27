@@ -72,6 +72,7 @@ impl HashAlgorithm {
 #[derive(Serialize)]
 struct MatchResult {
     path: String,
+    algorithm: String,
     hash: String,
     signature: String,
 }
@@ -145,23 +146,44 @@ fn hash_file(path: &Path, algorithm: HashAlgorithm) -> Result<String> {
     }
 }
 
+fn signature_key(algorithm: &str, hash: &str) -> String {
+    format!("{}:{}", algorithm.to_lowercase(), hash.to_lowercase())
+}
+
 fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
     let content = fs::read_to_string(path)?;
     let mut signatures = HashMap::new();
 
-    for line in content.lines() {
+    for (line_number, line) in content.lines().enumerate() {
         let line = line.trim();
 
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
 
-        let mut parts = line.split_whitespace();
+        let parts: Vec<&str> = line.split_whitespace().collect();
 
-        if let Some(hash) = parts.next() {
-            let name = parts.collect::<Vec<_>>().join(" ");
-            signatures.insert(hash.to_lowercase(), name);
+        if parts.len() < 3 {
+            bail!(
+                "Invalid signature on line {}. Expected: <algorithm> <hash> <name>",
+                line_number + 1
+            );
         }
+
+        let algorithm = parts[0].to_lowercase();
+
+        if algorithm != "sha256" && algorithm != "sha1" && algorithm != "md5" {
+            bail!(
+                "Unsupported algorithm '{}' on line {}. Use sha256, sha1, or md5.",
+                parts[0],
+                line_number + 1
+            );
+        }
+
+        let hash = parts[1].to_lowercase();
+        let name = parts[2..].join(" ");
+
+        signatures.insert(signature_key(&algorithm, &hash), name);
     }
 
     Ok(signatures)
@@ -184,17 +206,25 @@ fn scan_file(
     let hash = hash_file(path, algorithm)?;
     stats.files_scanned += 1;
 
-    if let Some(signature_name) = signatures.get(&hash) {
+    let key = signature_key(algorithm.as_str(), &hash);
+
+    if let Some(signature_name) = signatures.get(&key) {
         stats.matches_found += 1;
 
         stats.matches.push(MatchResult {
             path: path.display().to_string(),
+            algorithm: algorithm.as_str().to_string(),
             hash,
             signature: signature_name.to_string(),
         });
 
         if !json {
-            println!("[MATCH] {} -> {}", path.display(), signature_name);
+            println!(
+                "[MATCH] {} -> {} ({})",
+                path.display(),
+                signature_name,
+                algorithm.display_name()
+            );
         }
     } else if !quiet && !json {
         println!("[OK] {}", path.display());
@@ -220,18 +250,16 @@ fn scan_path(
             }
         }
     } else if path.is_dir() {
-        for entry in WalkDir::new(path).into_iter().filter_entry(|e| !should_skip(e)) {
+        for entry in WalkDir::new(path)
+            .into_iter()
+            .filter_entry(|e| !should_skip(e))
+        {
             match entry {
                 Ok(entry) => {
                     if entry.path().is_file() {
-                        if let Err(error) = scan_file(
-                            entry.path(),
-                            signatures,
-                            stats,
-                            quiet,
-                            json,
-                            algorithm,
-                        ) {
+                        if let Err(error) =
+                            scan_file(entry.path(), signatures, stats, quiet, json, algorithm)
+                        {
                             stats.errors += 1;
 
                             if !json {

@@ -1,3 +1,6 @@
-# hash name
-# SHA256 signature database
-99f86e1be6de5ae82b3f23977b65ebe43cb8359b37b6cf0ab8e6c2eaa0c99193 test-file-match
+# Format:
+# <algorithm> <hash> <signature-name>
+
+sha256 99f86e1be6de5ae82b3f23977b65ebe43cb8359b37b6cf0ab8e6c2eaa0c99193 test-file-sha256-match
+sha1 a94a8fe5ccb19ba61c4c0873d391e987982fbbd3 test-file-sha1-match
+md5 098f6bcd4621d373cade4e832627b4f6 test-file-md5-match
