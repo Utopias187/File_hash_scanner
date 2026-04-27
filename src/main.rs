@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::Path;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 #[derive(Parser)]
 #[command(name = "file-hash-scanner")]
@@ -74,6 +74,12 @@ fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
     Ok(signatures)
 }
 
+fn should_skip(entry: &DirEntry) -> bool {
+    let file_name = entry.file_name().to_string_lossy();
+
+    file_name == "target" || file_name == ".git"
+}
+
 fn scan_file(
     path: &Path,
     signatures: &HashMap<String, String>,
@@ -103,7 +109,10 @@ fn scan_path(
             eprintln!("[ERROR] {} -> {}", path.display(), error);
         }
     } else if path.is_dir() {
-        for entry in WalkDir::new(path) {
+        for entry in WalkDir::new(path)
+            .into_iter()
+            .filter_entry(|e| !should_skip(e))
+        {
             match entry {
                 Ok(entry) => {
                     if entry.path().is_file() {
