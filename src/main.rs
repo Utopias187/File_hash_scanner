@@ -22,6 +22,12 @@ enum Commands {
     },
 }
 
+struct ScanStats {
+    files_scanned: usize,
+    matches_found: usize,
+    errors: usize,
+}
+
 fn hash_file(path: &Path) -> Result<String> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
@@ -65,10 +71,12 @@ fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
     Ok(signatures)
 }
 
-fn scan_file(path: &Path, signatures: &HashMap<String, String>) -> Result<()> {
+fn scan_file(path: &Path, signatures: &HashMap<String, String>, stats: &mut ScanStats) -> Result<()> {
     let hash = hash_file(path)?;
+    stats.files_scanned += 1;
 
     if let Some(signature_name) = signatures.get(&hash) {
+        stats.matches_found += 1;
         println!("[MATCH] {} -> {}", path.display(), signature_name);
     } else {
         println!("[OK] {}", path.display());
@@ -77,20 +85,31 @@ fn scan_file(path: &Path, signatures: &HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
-fn scan_path(path: &Path, signatures: &HashMap<String, String>) -> Result<()> {
+fn scan_path(path: &Path, signatures: &HashMap<String, String>, stats: &mut ScanStats) -> Result<()> {
     if path.is_file() {
-        scan_file(path, signatures)?;
+        if let Err(error) = scan_file(path, signatures, stats) {
+            stats.errors += 1;
+            eprintln!("[ERROR] {} -> {}", path.display(), error);
+        }
     } else if path.is_dir() {
         for entry in WalkDir::new(path) {
-            let entry = entry?;
-
-            if entry.path().is_file() {
-                if let Err(error) = scan_file(entry.path(), signatures) {
-                    eprintln!("[ERROR] {} -> {}", entry.path().display(), error);
+            match entry {
+                Ok(entry) => {
+                    if entry.path().is_file() {
+                        if let Err(error) = scan_file(entry.path(), signatures, stats) {
+                            stats.errors += 1;
+                            eprintln!("[ERROR] {} -> {}", entry.path().display(), error);
+                        }
+                    }
+                }
+                Err(error) => {
+                    stats.errors += 1;
+                    eprintln!("[ERROR] {}", error);
                 }
             }
         }
     } else {
+        stats.errors += 1;
         eprintln!("Path does not exist: {}", path.display());
     }
 
@@ -101,12 +120,24 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let signatures = load_signatures(Path::new("signatures.txt"))?;
 
+    let mut stats = ScanStats {
+        files_scanned: 0,
+        matches_found: 0,
+        errors: 0,
+    };
+
     match cli.command {
         Commands::Scan { path } => {
             let path = Path::new(&path);
-            scan_path(path, &signatures)?;
+            scan_path(path, &signatures, &mut stats)?;
         }
     }
+
+    println!();
+    println!("Scan complete.");
+    println!("Files scanned: {}", stats.files_scanned);
+    println!("Matches found: {}", stats.matches_found);
+    println!("Errors: {}", stats.errors);
 
     Ok(())
 }
