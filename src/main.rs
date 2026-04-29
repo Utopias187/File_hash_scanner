@@ -165,7 +165,7 @@ fn load_signatures(path: &Path) -> Result<HashMap<String, String>> {
 
         if parts.len() < 3 {
             bail!(
-                "Invalid signature on line {}. Expected: <algorithm> <hash> <name>",
+                "Invalid signature on line {}. Expected: <algorithm> <hash> <signature-name>",
                 line_number + 1
             );
         }
@@ -308,7 +308,15 @@ fn main() -> Result<()> {
             json,
             algorithm,
         } => {
-            let signatures = load_signatures(Path::new(&signatures))?;
+            let signatures_path = Path::new(&signatures);
+
+            let signatures = load_signatures(signatures_path).map_err(|error| {
+                anyhow::anyhow!(
+                    "Could not load signature file: {}\nReason: {}\nExpected format:\n<algorithm> <hash> <signature-name>\nExample:\nsha256 99f86e1be6de5ae82b3f23977b65ebe43cb8359b37b6cf0ab8e6c2eaa0c99193 test-file-sha256-match",
+                    signatures_path.display(),
+                    error
+                )
+            })?;
 
             let mut stats = ScanStats {
                 algorithm: algorithm.as_str().to_string(),
