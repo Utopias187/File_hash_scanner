@@ -349,3 +349,90 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_file_path(file_name: &str) -> std::path::PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        env::temp_dir().join(format!("{}_{}", timestamp, file_name))
+    }
+
+    #[test]
+    fn test_signature_key_lowercases_algorithm_and_hash() {
+        let key = signature_key("SHA256", "ABC123");
+
+        assert_eq!(key, "sha256:abc123");
+    }
+
+    #[test]
+    fn test_hash_file_sha256() {
+        let path = temp_file_path("hash_test.txt");
+
+        fs::write(&path, "test").unwrap();
+
+        let hash = hash_file(&path, HashAlgorithm::Sha256).unwrap();
+
+        assert_eq!(
+            hash,
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_hash_file_md5() {
+        let path = temp_file_path("md5_test.txt");
+
+        fs::write(&path, "test").unwrap();
+
+        let hash = hash_file(&path, HashAlgorithm::Md5).unwrap();
+
+        assert_eq!(hash, "098f6bcd4621d373cade4e832627b4f6");
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_load_signatures() {
+        let path = temp_file_path("signatures_test.txt");
+
+        let content = "\
+# test signature file
+sha256 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 test-sha256
+sha1 a94a8fe5ccb19ba61c4c0873d391e987982fbbd3 test-sha1
+md5 098f6bcd4621d373cade4e832627b4f6 test-md5
+";
+
+        fs::write(&path, content).unwrap();
+
+        let signatures = load_signatures(&path).unwrap();
+
+        assert_eq!(
+            signatures
+                .get("sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+            Some(&"test-sha256".to_string())
+        );
+
+        assert_eq!(
+            signatures.get("sha1:a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"),
+            Some(&"test-sha1".to_string())
+        );
+
+        assert_eq!(
+            signatures.get("md5:098f6bcd4621d373cade4e832627b4f6"),
+            Some(&"test-md5".to_string())
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+}
